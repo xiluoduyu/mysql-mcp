@@ -59,7 +59,7 @@ func main() {
 		log.Fatalf("parse cli args error: %v", err)
 	}
 	if opts.ShowHelp {
-		printHelp(os.Stdout, filepath.Base(os.Args[0]), filepath.Join(cwd, config.DefaultDotEnvPath))
+		printHelp(os.Stdout, filepath.Base(os.Args[0]), opts.DotEnvPath)
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -30,10 +31,20 @@ const (
 	DefaultApprovalClientMode         = "local_desktop"
 	DefaultApprovalSubmitPath         = "/approvals"
 	DefaultApprovalStatusPathTemplate = "/approvals/{id}"
-	DefaultStateSQLitePath            = "./data/state.db"
-	DefaultDotEnvPath                 = ".env"
+	DefaultStateSQLitePath            = "./data/state.db" // fallback when user home cannot be determined
+	LegacyDefaultDotEnvPath           = ".env.mysql-mcp"
 	DefaultMaxLimit                   = 200
 )
+
+// DefaultDotEnvPath returns the preferred default dotenv path: ~/.mysql-mcp/.env.
+// If user home cannot be determined, it falls back to the legacy cwd .env.mysql-mcp path.
+func DefaultDotEnvPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return LegacyDefaultDotEnvPath
+	}
+	return filepath.Join(home, ".mysql-mcp", ".env")
+}
 
 // LoadDotEnvFile loads dotenv entries from file into process env.
 // Existing environment variables are not overridden.

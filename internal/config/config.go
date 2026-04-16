@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -51,7 +53,7 @@ func LoadFromEnv(getEnv func(string) string) (Config, error) {
 		ApprovalSubmitPath:         defaultStr(strings.TrimSpace(getEnv(EnvApprovalSubmitPath)), DefaultApprovalSubmitPath),
 		ApprovalStatusPathTemplate: defaultStr(strings.TrimSpace(getEnv(EnvApprovalStatusPathTemplate)), DefaultApprovalStatusPathTemplate),
 		ApprovalCallbackSecret:     strings.TrimSpace(getEnv(EnvApprovalCallbackSecret)),
-		StateSQLitePath:            defaultStr(strings.TrimSpace(getEnv(EnvStateSQLitePath)), DefaultStateSQLitePath),
+		StateSQLitePath:            resolveStateSQLitePath(strings.TrimSpace(getEnv(EnvStateSQLitePath))),
 		MaxLimit:                   DefaultMaxLimit,
 		ApprovalPollInterval:       3 * time.Second,
 		ApprovalTimeout:            30 * time.Minute,
@@ -107,6 +109,17 @@ func defaultStr(v, d string) string {
 		return d
 	}
 	return v
+}
+
+func resolveStateSQLitePath(v string) string {
+	if v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return DefaultStateSQLitePath
+	}
+	return filepath.Join(home, ".mysql-mcp", "state.db")
 }
 
 func splitCSV(raw string) []string {

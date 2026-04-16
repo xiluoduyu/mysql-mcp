@@ -13,7 +13,7 @@ English version: see [README.md](README.md).
 ## 快速开始
 
 ```bash
-cp .env.example .env
+cp .env.example .env.mysql-mcp
 go run ./cmd/mysql-mcp
 ```
 
@@ -41,7 +41,8 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 说明：
 
-- 启动时会自动加载“执行命令时工作目录”下的 `.env`（例如在 `/user/xiluo` 执行 `mysql-mcp`，默认加载 `/user/xiluo/.env`）。
+- `.env` 默认路径为 `~/.mysql-mcp/.env`。
+- 若 `~/.mysql-mcp/.env` 不存在，会自动回退加载命令执行目录下的 `./.env.mysql-mcp`。
 - 可通过 `-env-file` 指定 dotenv 文件路径。
 - 已存在的系统环境变量不会被 `.env` 覆盖。
 - dotenv 多行值规则：
@@ -72,6 +73,7 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 - `APPROVAL_CLIENT_MODE=local_desktop`
 - `MCP_BIND_ADDR=127.0.0.1:9090`
+- `STATE_SQLITE_PATH=~/.mysql-mcp/state.db`（未设置 `STATE_SQLITE_PATH` 时）
 - `MAX_LIMIT=200`
 
 多数据源配置：
@@ -173,6 +175,16 @@ type ApprovalClient interface {
 - `skills/mysql-mcp/SKILL.md`
 - `skills/mysql-mcp/scripts/mcp_tools.sh`
 - `skills/mysql-mcp/scripts/query_table_with_approval.sh`
+
+封装脚本环境变量：
+
+- `MYSQL_MCP_URL`（默认 `http://127.0.0.1:9090/mcp`）
+- `MYSQL_MCP_TOKEN`（必填）
+
+封装脚本行为说明：
+
+- 脚本会自动调用 MCP `initialize`，并在后续 `tools/call` 复用 `Mcp-Session-Id`。
+- 在有状态 streamable-http 模式下可避免 `Invalid session ID` 报错。
 
 ## 测试
 

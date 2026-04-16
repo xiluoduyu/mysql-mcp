@@ -14,7 +14,7 @@ This project exposes data to LLM agents through a guarded model: `MCP + strict i
 ## Quick Start
 
 ```bash
-cp .env.example .env
+cp .env.example .env.mysql-mcp
 go run ./cmd/mysql-mcp
 ```
 
@@ -42,7 +42,8 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 Notes:
 
-- `.env` is auto-loaded at startup from the command working directory (for example, running `mysql-mcp` in `/user/xiluo` loads `/user/xiluo/.env` by default).
+- `.env` default path is `~/.mysql-mcp/.env`.
+- If `~/.mysql-mcp/.env` does not exist, it falls back to `./.env.mysql-mcp` in the command working directory.
 - You can override dotenv path with `-env-file`.
 - Existing process env vars are not overridden by `.env`.
 - Dotenv multi-line values:
@@ -73,6 +74,7 @@ Defaults:
 
 - `APPROVAL_CLIENT_MODE=local_desktop`
 - `MCP_BIND_ADDR=127.0.0.1:9090`
+- `STATE_SQLITE_PATH=~/.mysql-mcp/state.db` (when `STATE_SQLITE_PATH` is unset)
 - `MAX_LIMIT=200`
 
 Multi-source configuration:
@@ -174,6 +176,16 @@ Then wire it in `cmd/mysql-mcp/main.go` by assigning your implementation to `app
 - `skills/mysql-mcp/SKILL.md`
 - `skills/mysql-mcp/scripts/mcp_tools.sh`
 - `skills/mysql-mcp/scripts/query_table_with_approval.sh`
+
+Wrapper script env variables:
+
+- `MYSQL_MCP_URL` (default `http://127.0.0.1:9090/mcp`)
+- `MYSQL_MCP_TOKEN` (required)
+
+Wrapper script behavior notes:
+
+- Scripts automatically call MCP `initialize` and reuse `Mcp-Session-Id` for subsequent `tools/call` requests.
+- This avoids `Invalid session ID` in stateful streamable-http mode.
 
 ## Test
 

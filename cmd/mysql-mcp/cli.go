@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/xiluoduyu/mysql-mcp/internal/config"
@@ -18,7 +19,10 @@ func parseCLIOptions(args []string, cwd string) (cliOptions, error) {
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
-	defaultDotEnvPath := filepath.Join(cwd, config.DefaultDotEnvPath)
+	defaultDotEnvPath := config.DefaultDotEnvPath()
+	if _, err := os.Stat(defaultDotEnvPath); err != nil && os.IsNotExist(err) {
+		defaultDotEnvPath = filepath.Join(cwd, config.LegacyDefaultDotEnvPath)
+	}
 	opts := cliOptions{
 		DotEnvPath: defaultDotEnvPath,
 	}

@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestLoadFromEnvSuccess(t *testing.T) {
 	env := map[string]string{
@@ -73,6 +77,54 @@ func TestLoadFromEnvMissingRequired(t *testing.T) {
 	_, err := LoadFromEnv(getterFromMap(env))
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestLoadFromEnvDefaultStateSQLitePathUsesUserHome(t *testing.T) {
+	home := t.TempDir()
+	oldHome, hadHome := os.LookupEnv("HOME")
+	t.Cleanup(func() {
+		if hadHome {
+			_ = os.Setenv("HOME", oldHome)
+		} else {
+			_ = os.Unsetenv("HOME")
+		}
+	})
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatalf("set HOME err=%v", err)
+	}
+
+	env := map[string]string{
+		EnvMCPBearerToken:         "abc",
+		EnvMySQLDSNs:              "root:pwd@tcp(localhost:3306)/db",
+		EnvApprovalClientMode:     "local_desktop",
+		EnvApprovalCallbackSecret: "secret",
+	}
+	cfg, err := LoadFromEnv(getterFromMap(env))
+	if err != nil {
+		t.Fatalf("LoadFromEnv err=%v", err)
+	}
+
+	want := filepath.Join(home, ".mysql-mcp", "state.db")
+	if cfg.StateSQLitePath != want {
+		t.Fatalf("StateSQLitePath=%q want=%q", cfg.StateSQLitePath, want)
+	}
+}
+
+func TestLoadFromEnvExplicitStateSQLitePathWins(t *testing.T) {
+	env := map[string]string{
+		EnvMCPBearerToken:         "abc",
+		EnvMySQLDSNs:              "root:pwd@tcp(localhost:3306)/db",
+		EnvApprovalClientMode:     "local_desktop",
+		EnvApprovalCallbackSecret: "secret",
+		EnvStateSQLitePath:        "./data/custom.db",
+	}
+	cfg, err := LoadFromEnv(getterFromMap(env))
+	if err != nil {
+		t.Fatalf("LoadFromEnv err=%v", err)
+	}
+	if cfg.StateSQLitePath != "./data/custom.db" {
+		t.Fatalf("StateSQLitePath=%q", cfg.StateSQLitePath)
 	}
 }
 
