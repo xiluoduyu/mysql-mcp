@@ -23,7 +23,7 @@ Query options:
   --max-retries <n>         Default: 60
 
 Global env:
-  MCP_URL                   Default: http://127.0.0.1:9090/mcp
+  MYSQL_MCP_URL             Default: http://127.0.0.1:9090/mcp
   MYSQL_MCP_TOKEN           Required (Bearer token)
 EOF
 }
@@ -35,17 +35,69 @@ require_cmd() {
   }
 }
 
-rpc_call() {
-  local tool_name="$1"
-  local args_json="$2"
-  local req_json
-  req_json="$(jq -n --arg name "$tool_name" --argjson a "$args_json" \
-    '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$name,arguments:$a}}')"
+ensure_session_id() {
+  if [[ -n "${MYSQL_MCP_SESSION_ID:-}" ]]; then
+    return 0
+  fi
 
-  curl -sS "$MCP_URL" \
+  local init_req init_resp
+  init_req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mysql-mcp-skill","version":"1.0"}}}'
+  init_resp="$(curl -sS -i --max-time 15 \
     -H "Authorization: Bearer $MYSQL_MCP_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "$req_json"
+    -d "$init_req" \
+    "$MYSQL_MCP_URL")"
+
+  MYSQL_MCP_SESSION_ID="$(echo "$init_resp" | awk -F': ' '/^Mcp-Session-Id:/{print $2}' | tr -d '\r')"
+  if [[ -z "$MYSQL_MCP_SESSION_ID" ]]; then
+    echo "failed to initialize MCP session (header Mcp-Session-Id missing)" >&2
+    echo "$init_resp" | sed -n '1,80p' >&2
+    exit 1
+  fi
+}
+
+rpc_call() {
+  local method="$1"
+  local params_json="$2"
+  local req_json
+  req_json="$(jq -n --arg m "$method" --argjson p "$params_json" \
+    '{jsonrpc:"2.0",id:1,method:$m,params:$p}')"
+
+  local resp body status
+  resp="$(curl -sS -i --max-time 30 \
+    -H "Authorization: Bearer $MYSQL_MCP_TOKEN" \
+    -H "Mcp-Session-Id: $MYSQL_MCP_SESSION_ID" \
+    -H "Content-Type: application/json" \
+    -d "$req_json" \
+    "$MYSQL_MCP_URL")"
+  body="$(echo "$resp" | sed -n '/^\r$/,$p' | sed '1d')"
+  status="$(echo "$resp" | awk 'NR==1 {print $2}')"
+
+  if [[ -z "$status" ]]; then
+    echo "request failed: missing HTTP status" >&2
+    echo "$resp" | sed -n '1,80p' >&2
+    exit 1
+  fi
+
+  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+    echo "request failed: HTTP $status" >&2
+    echo "$body" | sed -n '1,80p' >&2
+    exit 1
+  fi
+
+  if ! echo "$body" | jq -e . >/dev/null 2>&1; then
+    echo "request failed: response is not valid JSON" >&2
+    echo "$body" | sed -n '1,80p' >&2
+    exit 1
+  fi
+
+  echo "$body"
+}
+
+rpc_call_tool() {
+  local tool_name="$1"
+  local args_json="$2"
+  rpc_call "tools/call" "$(jq -n --arg name "$tool_name" --argjson a "$args_json" '{name:$name,arguments:$a}')"
 }
 
 extract_content_json() {
@@ -78,7 +130,7 @@ handle_list_tables() {
   if [[ -n "$source" ]]; then
     args="$(jq -n --arg source "$source" '{source:$source}')"
   fi
-  raw="$(rpc_call "list_tables" "$args")"
+  raw="$(rpc_call_tool "list_tables" "$args")"
   body="$(echo "$raw" | extract_content_json)"
   if echo "$body" | jq -e 'has("__rpc_error__")' >/dev/null; then
     echo "$body" | jq .
@@ -103,7 +155,7 @@ handle_describe_table() {
     exit 1
   fi
 
-  raw="$(rpc_call "describe_table" "$(jq -n --arg table "$table" --arg source "$source" \
+  raw="$(rpc_call_tool "describe_table" "$(jq -n --arg table "$table" --arg source "$source" \
     '{table:$table} + (if $source != "" then {source:$source} else {} end)')")"
   body="$(echo "$raw" | extract_content_json)"
   if echo "$body" | jq -e 'has("__rpc_error__")' >/dev/null; then
@@ -178,7 +230,7 @@ handle_query_table() {
       + (if $requestId != "" then {request_id: $requestId} else {} end)
     ')"
 
-    raw="$(rpc_call "query_table" "$args_json")"
+    raw="$(rpc_call_tool "query_table" "$args_json")"
     body="$(echo "$raw" | extract_content_json)"
 
     if echo "$body" | jq -e 'has("__rpc_error__")' >/dev/null; then
@@ -236,7 +288,7 @@ main() {
       ;;
   esac
 
-  MCP_URL="${MCP_URL:-http://127.0.0.1:9090/mcp}"
+  MYSQL_MCP_URL="${MYSQL_MCP_URL:-http://127.0.0.1:9090/mcp}"
   MYSQL_MCP_TOKEN="${MYSQL_MCP_TOKEN:-}"
   if [[ -z "$MYSQL_MCP_TOKEN" ]]; then
     echo "MYSQL_MCP_TOKEN is required" >&2
@@ -245,6 +297,7 @@ main() {
 
   require_cmd curl
   require_cmd jq
+  ensure_session_id
 
   cmd="$1"
   shift

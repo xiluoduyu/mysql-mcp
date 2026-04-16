@@ -20,7 +20,7 @@ Options:
   -h, --help
 
 Env:
-  MCP_URL                   Default: http://127.0.0.1:9090/mcp
+  MYSQL_MCP_URL             Default: http://127.0.0.1:9090/mcp
   MYSQL_MCP_TOKEN           Required (Bearer token)
 EOF
 }
@@ -66,7 +66,7 @@ if [[ -z "$TABLE" ]]; then
   exit 1
 fi
 
-MCP_URL="${MCP_URL:-http://127.0.0.1:9090/mcp}"
+MYSQL_MCP_URL="${MYSQL_MCP_URL:-http://127.0.0.1:9090/mcp}"
 MYSQL_MCP_TOKEN="${MYSQL_MCP_TOKEN:-}"
 if [[ -z "$MYSQL_MCP_TOKEN" ]]; then
   echo "MYSQL_MCP_TOKEN is required" >&2
@@ -75,6 +75,8 @@ fi
 
 require_cmd curl
 require_cmd jq
+
+MYSQL_MCP_SESSION_ID=""
 
 if ! echo "$FILTERS" | jq -e 'type == "object" and (has("request_id") | not) and (has("reuqest_id") | not)' >/dev/null; then
   echo "--filters must be a JSON object and must not contain request_id/reuqest_id" >&2
@@ -106,16 +108,69 @@ build_args() {
   '
 }
 
+ensure_session_id() {
+  if [[ -n "${MYSQL_MCP_SESSION_ID:-}" ]]; then
+    return 0
+  fi
+
+  local init_req init_resp
+  init_req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mysql-mcp-skill","version":"1.0"}}}'
+  init_resp="$(curl -sS -i --max-time 15 \
+    -H "Authorization: Bearer $MYSQL_MCP_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$init_req" \
+    "$MYSQL_MCP_URL")"
+
+  MYSQL_MCP_SESSION_ID="$(echo "$init_resp" | awk -F': ' '/^Mcp-Session-Id:/{print $2}' | tr -d '\r')"
+  if [[ -z "$MYSQL_MCP_SESSION_ID" ]]; then
+    echo "failed to initialize MCP session (header Mcp-Session-Id missing)" >&2
+    echo "$init_resp" | sed -n '1,80p' >&2
+    exit 1
+  fi
+}
+
+rpc_call() {
+  local method="$1"
+  local params_json="$2"
+  local req_json
+  req_json="$(jq -n --arg m "$method" --argjson p "$params_json" \
+    '{jsonrpc:"2.0",id:1,method:$m,params:$p}')"
+
+  local resp body status
+  resp="$(curl -sS -i --max-time 30 \
+    -H "Authorization: Bearer $MYSQL_MCP_TOKEN" \
+    -H "Mcp-Session-Id: $MYSQL_MCP_SESSION_ID" \
+    -H "Content-Type: application/json" \
+    -d "$req_json" \
+    "$MYSQL_MCP_URL")"
+  body="$(echo "$resp" | sed -n '/^\r$/,$p' | sed '1d')"
+  status="$(echo "$resp" | awk 'NR==1 {print $2}')"
+
+  if [[ -z "$status" ]]; then
+    echo "request failed: missing HTTP status" >&2
+    echo "$resp" | sed -n '1,80p' >&2
+    exit 1
+  fi
+
+  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+    echo "request failed: HTTP $status" >&2
+    echo "$body" | sed -n '1,80p' >&2
+    exit 1
+  fi
+
+  if ! echo "$body" | jq -e . >/dev/null 2>&1; then
+    echo "request failed: response is not valid JSON" >&2
+    echo "$body" | sed -n '1,80p' >&2
+    exit 1
+  fi
+
+  echo "$body"
+}
+
 call_once() {
   local args_json
   args_json="$(build_args)"
-  local req_json
-  req_json="$(jq -n --argjson a "$args_json" '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"query_table",arguments:$a}}')"
-
-  curl -sS "$MCP_URL" \
-    -H "Authorization: Bearer $MYSQL_MCP_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$req_json"
+  rpc_call "tools/call" "$(jq -n --argjson a "$args_json" '{name:"query_table",arguments:$a}')"
 }
 
 extract_content_json() {
@@ -136,6 +191,7 @@ extract_content_json() {
 }
 
 retry=0
+ensure_session_id
 while true; do
   raw="$(call_once)"
   body="$(echo "$raw" | extract_content_json)"
