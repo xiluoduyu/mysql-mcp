@@ -1,67 +1,104 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/urfave/cli/v3"
 	"github.com/xiluoduyu/mysql-mcp/internal/config"
 )
 
-type cliOptions struct {
+type appOptions struct {
 	DotEnvPath string
-	ShowHelp   bool
+	ConfigPath string
 }
 
-func parseCLIOptions(args []string, cwd string) (cliOptions, error) {
-	if len(args) > 0 && args[0] == "--" {
-		args = args[1:]
-	}
-	defaultDotEnvPath := config.DefaultDotEnvPath()
-	if _, err := os.Stat(defaultDotEnvPath); err != nil && os.IsNotExist(err) {
-		defaultDotEnvPath = filepath.Join(cwd, config.LegacyDefaultDotEnvPath)
-	}
-	opts := cliOptions{
+func buildCommand(cwd string, stdout io.Writer, stderr io.Writer) *cli.Command {
+	defaultDotEnvPath := resolveDefaultDotEnvPath(cwd)
+	defaultConfigPath := defaultConfigFilePath()
+
+	opts := &appOptions{
 		DotEnvPath: defaultDotEnvPath,
+		ConfigPath: defaultConfigPath,
 	}
 
-	fs := flag.NewFlagSet("mysql-mcp", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.BoolVar(&opts.ShowHelp, "h", false, "show help")
-	fs.BoolVar(&opts.ShowHelp, "help", false, "show help")
-	fs.StringVar(&opts.DotEnvPath, "env-file", defaultDotEnvPath, "path to dotenv file")
-	if err := fs.Parse(args); err != nil {
-		return cliOptions{}, err
+	cmd := &cli.Command{
+		Name:      "mysql-mcp",
+		Usage:     "MySQL MCP server (read-only query with approval gate)",
+		UsageText: "mysql-mcp <command> [command options]",
+		Writer:    stdout,
+		ErrWriter: stderr,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "env-file",
+				Usage:       "Path to .env file (deprecated; config file is preferred)",
+				Value:       defaultDotEnvPath,
+				Destination: &opts.DotEnvPath,
+			},
+			&cli.StringFlag{
+				Name:        "config",
+				Usage:       "Path to config file",
+				Value:       defaultConfigPath,
+				Destination: &opts.ConfigPath,
+			},
+		},
+		DefaultCommand: "serve",
+		Commands: []*cli.Command{
+			{
+				Name:  "serve",
+				Usage: "Start MCP service",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					return runServe(ctx, opts, cwd)
+				},
+			},
+			{
+				Name:  "config",
+				Usage: "Manage config file",
+				Commands: []*cli.Command{
+					{
+						Name:  "init",
+						Usage: "Create config template file if missing",
+						Action: func(ctx context.Context, c *cli.Command) error {
+							return runConfigInit(ctx, opts.ConfigPath, c.Root().Writer)
+						},
+					},
+					{
+						Name:      "set",
+						Usage:     "Set key/value in config file",
+						ArgsUsage: "<key> <value>",
+						Action: func(ctx context.Context, c *cli.Command) error {
+							key := strings.TrimSpace(c.Args().Get(0))
+							value := c.Args().Get(1)
+							if key == "" || c.Args().Len() < 2 {
+								return fmt.Errorf("usage: mysql-mcp config set <key> <value>")
+							}
+							return runConfigSet(ctx, opts.ConfigPath, key, value, c.Root().Writer)
+						},
+					},
+				},
+			},
+		},
 	}
-	return opts, nil
+
+	return cmd
 }
 
-func helpText(programName string, defaultDotEnvPath string) string {
-	return fmt.Sprintf(`%s - MySQL MCP server (read-only query with approval gate)
-
-Project:
-  Standalone MySQL MCP server with built-in approval flow and result masking.
-
-Tools:
-  list_tables    List accessible tables
-  describe_table Describe table schema and fields
-  query_table    Query rows by filters (approval required; reuse request_id when pending)
-
-Usage:
-  %s [-env-file /path/to/.env]
-  %s -h
-
-Flags:
-  -env-file string
-      Path to .env file.
-      Default: %s
-  -h, --help
-      Show this help message.
-`, programName, programName, programName, defaultDotEnvPath)
+func defaultConfigFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "./config.toml"
+	}
+	return filepath.Join(home, ".mysql-mcp", "config.toml")
 }
 
-func printHelp(w io.Writer, programName string, defaultDotEnvPath string) {
-	_, _ = fmt.Fprint(w, helpText(programName, defaultDotEnvPath))
+func resolveDefaultDotEnvPath(cwd string) string {
+	p := config.DefaultDotEnvPath()
+	if _, err := os.Stat(p); err != nil && os.IsNotExist(err) {
+		return filepath.Join(cwd, config.LegacyDefaultDotEnvPath)
+	}
+	return p
 }

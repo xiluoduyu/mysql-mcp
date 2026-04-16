@@ -13,8 +13,11 @@ English version: see [README.md](README.md).
 ## 快速开始
 
 ```bash
-cp .env.example .env.mysql-mcp
-go run ./cmd/mysql-mcp
+go run ./cmd/mysql-mcp config init
+go run ./cmd/mysql-mcp config set MCP_BEARER_TOKEN replace-with-strong-token
+go run ./cmd/mysql-mcp config set MYSQL_DSNS 'user:password@tcp(127.0.0.1:3306)/dbname?parseTime=true&loc=Local'
+go run ./cmd/mysql-mcp config set APPROVAL_CALLBACK_SECRET replace-with-hmac-secret
+go run ./cmd/mysql-mcp serve
 ```
 
 查看帮助：
@@ -26,7 +29,7 @@ go run ./cmd/mysql-mcp -h
 指定 `.env` 路径：
 
 ```bash
-go run ./cmd/mysql-mcp -env-file /path/to/custom.env
+go run ./cmd/mysql-mcp serve --env-file /path/to/custom.env
 ```
 
 也可通过 `go install` 安装命令行：
@@ -41,11 +44,12 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 说明：
 
-- `.env` 默认路径为 `~/.mysql-mcp/.env`。
-- 若 `~/.mysql-mcp/.env` 不存在，会自动回退加载命令执行目录下的 `./.env.mysql-mcp`。
-- 可通过 `-env-file` 指定 dotenv 文件路径。
-- 已存在的系统环境变量不会被 `.env` 覆盖。
-- dotenv 多行值规则：
+- `serve` 为默认命令（执行 `mysql-mcp` 等价于 `mysql-mcp serve`）。
+- 配置文件默认路径为 `~/.mysql-mcp/config.toml`。
+- 可通过 `--config` 指定配置文件路径。
+- `--env-file` 在 v1 保留用于兼容，后续可能移除。
+- 已存在的系统环境变量不会被文件加载覆盖。
+- dotenv 多行值规则（兼容模式）：
   - 双引号值支持真实换行和 `\n`。
   - 单引号值或无引号值不支持跨行。
 

@@ -14,8 +14,11 @@ This project exposes data to LLM agents through a guarded model: `MCP + strict i
 ## Quick Start
 
 ```bash
-cp .env.example .env.mysql-mcp
-go run ./cmd/mysql-mcp
+go run ./cmd/mysql-mcp config init
+go run ./cmd/mysql-mcp config set MCP_BEARER_TOKEN replace-with-strong-token
+go run ./cmd/mysql-mcp config set MYSQL_DSNS 'user:password@tcp(127.0.0.1:3306)/dbname?parseTime=true&loc=Local'
+go run ./cmd/mysql-mcp config set APPROVAL_CALLBACK_SECRET replace-with-hmac-secret
+go run ./cmd/mysql-mcp serve
 ```
 
 Show help:
@@ -27,7 +30,7 @@ go run ./cmd/mysql-mcp -h
 Specify `.env` path:
 
 ```bash
-go run ./cmd/mysql-mcp -env-file /path/to/custom.env
+go run ./cmd/mysql-mcp serve --env-file /path/to/custom.env
 ```
 
 Install CLI binary with `go install`:
@@ -42,11 +45,12 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 Notes:
 
-- `.env` default path is `~/.mysql-mcp/.env`.
-- If `~/.mysql-mcp/.env` does not exist, it falls back to `./.env.mysql-mcp` in the command working directory.
-- You can override dotenv path with `-env-file`.
-- Existing process env vars are not overridden by `.env`.
-- Dotenv multi-line values:
+- `serve` is now the default command (`mysql-mcp` equals `mysql-mcp serve`).
+- Config file default path is `~/.mysql-mcp/config.toml`.
+- You can override config path with `--config`.
+- `--env-file` is kept for compatibility in v1, and may be removed later.
+- Existing process env vars are not overridden by file loading.
+- Dotenv parsing behavior (for compatibility mode):
   - Double-quoted values support both literal newlines and `\n`.
   - Single-quoted or unquoted values do not support cross-line values.
 

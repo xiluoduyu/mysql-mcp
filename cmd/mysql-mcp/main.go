@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -54,28 +53,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("get current working directory error: %v", err)
 	}
-	opts, err := parseCLIOptions(os.Args[1:], cwd)
-	if err != nil {
-		log.Fatalf("parse cli args error: %v", err)
+	cmd := buildCommand(cwd, os.Stdout, os.Stderr)
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		log.Fatalf("run command error: %v", err)
 	}
-	if opts.ShowHelp {
-		printHelp(os.Stdout, filepath.Base(os.Args[0]), opts.DotEnvPath)
-		return
+}
+
+func runServe(ctx context.Context, opts *appOptions, cwd string) error {
+	loadCfg, err := loadRuntimeConfig(opts, cwd)
+	if err != nil {
+		return err
 	}
 
-	if err := config.LoadDotEnvFile(opts.DotEnvPath); err != nil {
-		log.Fatalf("load .env error: %v", err)
-	}
-
-	cfg, err := config.LoadFromEnv(os.Getenv)
+	mysqlSources, err := openMySQLSources(ctx, loadCfg)
 	if err != nil {
-		log.Fatalf("load config error: %v", err)
-	}
-
-	ctx := context.Background()
-	mysqlSources, err := openMySQLSources(ctx, cfg)
-	if err != nil {
-		log.Fatalf("init mysql sources error: %v", err)
+		return fmt.Errorf("init mysql sources error: %w", err)
 	}
 	defer func() {
 		for _, db := range mysqlSources {
@@ -92,48 +84,48 @@ func main() {
 	querySvc, err := mcpserver.NewMySQLService(
 		ctx,
 		mysqlSources,
-		cfg.MaxLimit,
-		mysqlquery.WithMasking(cfg.MaskFieldKeywords, cfg.MaskFields, cfg.MaskJSONFields),
+		loadCfg.MaxLimit,
+		mysqlquery.WithMasking(loadCfg.MaskFieldKeywords, loadCfg.MaskFields, loadCfg.MaskJSONFields),
 	)
 	if err != nil {
-		log.Fatalf("new mysql query service error: %v", err)
+		return fmt.Errorf("new mysql query service error: %w", err)
 	}
 
-	store, err := approval.NewSQLiteStore(cfg.StateSQLitePath)
+	store, err := approval.NewSQLiteStore(loadCfg.StateSQLitePath)
 	if err != nil {
-		log.Fatalf("new sqlite store error: %v", err)
+		return fmt.Errorf("new sqlite store error: %w", err)
 	}
 	defer store.Close()
 
 	var approvalClient approval.ApprovalClient
-	switch cfg.ApprovalClientMode {
+	switch loadCfg.ApprovalClientMode {
 	case "local_desktop":
 		approvalClient = approval.NewLocalDesktopClient(approval.LocalDesktopClientConfig{
-			RequestTimeout: cfg.ApprovalTimeout,
+			RequestTimeout: loadCfg.ApprovalTimeout,
 		})
 	default:
 		approvalClient = approval.NewClient(approval.ClientConfig{
-			BaseURL:            cfg.ApprovalBaseURL,
-			SubmitPath:         cfg.ApprovalSubmitPath,
-			StatusPathTemplate: cfg.ApprovalStatusPathTemplate,
+			BaseURL:            loadCfg.ApprovalBaseURL,
+			SubmitPath:         loadCfg.ApprovalSubmitPath,
+			StatusPathTemplate: loadCfg.ApprovalStatusPathTemplate,
 		})
 	}
-	gate := approval.NewGate(store, approvalClient, cfg.ApprovalTimeout)
+	gate := approval.NewGate(store, approvalClient, loadCfg.ApprovalTimeout)
 
 	srv := mcpserver.New(mcpserver.Config{
-		BearerToken:        cfg.BearerToken,
-		CallbackSecret:     cfg.ApprovalCallbackSecret,
-		ApprovalBypassTTL:  cfg.ApprovalTimeout,
-		ApprovalPollPeriod: cfg.ApprovalPollInterval,
+		BearerToken:        loadCfg.BearerToken,
+		CallbackSecret:     loadCfg.ApprovalCallbackSecret,
+		ApprovalBypassTTL:  loadCfg.ApprovalTimeout,
+		ApprovalPollPeriod: loadCfg.ApprovalPollInterval,
 	}, querySvc, gate, store)
 
-	runCtx, runCancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	runCtx, runCancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer runCancel()
 
-	log.Printf("mysql mcp server listening on %s", cfg.BindAddr)
-	if err := srv.Start(runCtx, cfg.BindAddr); err != nil && err != context.Canceled {
-		log.Fatalf("server stopped with error: %v", err)
+	log.Printf("mysql mcp server listening on %s", loadCfg.BindAddr)
+	if err := srv.Start(runCtx, loadCfg.BindAddr); err != nil && err != context.Canceled {
+		return fmt.Errorf("server stopped with error: %w", err)
 	}
-
 	fmt.Println("server stopped")
+	return nil
 }
