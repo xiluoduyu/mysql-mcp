@@ -129,7 +129,7 @@ func parseNamedDSNs(raw string) ([]NamedDSN, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
-	parts := strings.Split(raw, ";")
+	parts := splitDSNEntries(raw)
 	if len(parts) == 1 {
 		item := strings.TrimSpace(parts[0])
 		if item == "" {
@@ -175,6 +175,21 @@ func parseNamedDSNs(raw string) ([]NamedDSN, error) {
 		out = append(out, NamedDSN{Name: name, DSN: dsn})
 	}
 	return out, nil
+}
+
+func splitDSNEntries(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ';' || r == '\n' || r == '\r'
+	})
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		item := strings.TrimSpace(p)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 const DefaultSourceName = "default"

@@ -92,6 +92,41 @@ func TestLoadFromEnvOnlyMySQLDSNs(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvMultiMySQLDSNsSeparatedByNewline(t *testing.T) {
+	env := map[string]string{
+		EnvMCPBearerToken:         "abc",
+		EnvMySQLDSNs:              "core=user:pwd@tcp(localhost:3306)/db_core\naudit=user:pwd@tcp(localhost:3306)/db_audit",
+		EnvApprovalClientMode:     "local_desktop",
+		EnvApprovalCallbackSecret: "secret",
+	}
+	cfg, err := LoadFromEnv(getterFromMap(env))
+	if err != nil {
+		t.Fatalf("LoadFromEnv err=%v", err)
+	}
+	if got, want := len(cfg.MySQLDSNs), 2; got != want {
+		t.Fatalf("MySQLDSNs len=%d", got)
+	}
+	if cfg.MySQLDSNs[0].Name != "core" || cfg.MySQLDSNs[1].Name != "audit" {
+		t.Fatalf("MySQLDSNs=%v", cfg.MySQLDSNs)
+	}
+}
+
+func TestLoadFromEnvMultiMySQLDSNsSeparatedBySemicolonAndNewline(t *testing.T) {
+	env := map[string]string{
+		EnvMCPBearerToken:         "abc",
+		EnvMySQLDSNs:              "core=user:pwd@tcp(localhost:3306)/db_core;\naudit=user:pwd@tcp(localhost:3306)/db_audit",
+		EnvApprovalClientMode:     "local_desktop",
+		EnvApprovalCallbackSecret: "secret",
+	}
+	cfg, err := LoadFromEnv(getterFromMap(env))
+	if err != nil {
+		t.Fatalf("LoadFromEnv err=%v", err)
+	}
+	if got, want := len(cfg.MySQLDSNs), 2; got != want {
+		t.Fatalf("MySQLDSNs len=%d", got)
+	}
+}
+
 func TestLoadFromEnvMaskFields(t *testing.T) {
 	env := map[string]string{
 		EnvMCPBearerToken:         "abc",
@@ -142,6 +177,18 @@ func TestLoadFromEnvDuplicateMySQLDSNs(t *testing.T) {
 	env := map[string]string{
 		EnvMCPBearerToken:         "abc",
 		EnvMySQLDSNs:              "core=user:pwd@tcp(localhost:3306)/db_core;core=user:pwd@tcp(localhost:3306)/db_core2",
+		EnvApprovalClientMode:     "local_desktop",
+		EnvApprovalCallbackSecret: "secret",
+	}
+	if _, err := LoadFromEnv(getterFromMap(env)); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadFromEnvDuplicateMySQLDSNsWithNewlineSeparator(t *testing.T) {
+	env := map[string]string{
+		EnvMCPBearerToken:         "abc",
+		EnvMySQLDSNs:              "core=user:pwd@tcp(localhost:3306)/db_core\ncore=user:pwd@tcp(localhost:3306)/db_core2",
 		EnvApprovalClientMode:     "local_desktop",
 		EnvApprovalCallbackSecret: "secret",
 	}

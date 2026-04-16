@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -72,6 +73,74 @@ func TestLoadDotEnvFileInvalidLine(t *testing.T) {
 
 	if err := LoadDotEnvFile(p); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestLoadDotEnvFileDoubleQuotedSupportsEscapedNewline(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, ".env")
+	content := "APPROVAL_CALLBACK_SECRET=\"line1\\nline2\"\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file err=%v", err)
+	}
+
+	clearEnvKey(t, EnvApprovalCallbackSecret)
+	if err := LoadDotEnvFile(p); err != nil {
+		t.Fatalf("LoadDotEnvFile err=%v", err)
+	}
+	if got := os.Getenv(EnvApprovalCallbackSecret); got != "line1\nline2" {
+		t.Fatalf("env %s=%q", EnvApprovalCallbackSecret, got)
+	}
+}
+
+func TestLoadDotEnvFileDoubleQuotedSupportsLiteralNewline(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, ".env")
+	content := "APPROVAL_CALLBACK_SECRET=\"line1\nline2\"\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file err=%v", err)
+	}
+
+	clearEnvKey(t, EnvApprovalCallbackSecret)
+	if err := LoadDotEnvFile(p); err != nil {
+		t.Fatalf("LoadDotEnvFile err=%v", err)
+	}
+	if got := os.Getenv(EnvApprovalCallbackSecret); got != "line1\nline2" {
+		t.Fatalf("env %s=%q", EnvApprovalCallbackSecret, got)
+	}
+}
+
+func TestLoadDotEnvFileSingleQuotedCannotCrossLine(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, ".env")
+	content := "APPROVAL_CALLBACK_SECRET='line1\nline2'\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file err=%v", err)
+	}
+
+	err := LoadDotEnvFile(p)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unterminated single-quoted value") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadDotEnvFileUnquotedCannotCrossLine(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, ".env")
+	content := "APPROVAL_CALLBACK_SECRET=line1\nline2\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file err=%v", err)
+	}
+
+	err := LoadDotEnvFile(p)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid dotenv line") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

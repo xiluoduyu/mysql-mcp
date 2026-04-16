@@ -17,6 +17,18 @@ cp .env.example .env
 go run ./cmd/mysql-mcp
 ```
 
+查看帮助：
+
+```bash
+go run ./cmd/mysql-mcp -h
+```
+
+指定 `.env` 路径：
+
+```bash
+go run ./cmd/mysql-mcp -env-file /path/to/custom.env
+```
+
 也可通过 `go install` 安装命令行：
 
 ```bash
@@ -29,8 +41,12 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 说明：
 
-- 启动时会自动加载当前目录 `.env`。
+- 启动时会自动加载“执行命令时工作目录”下的 `.env`（例如在 `/user/xiluo` 执行 `mysql-mcp`，默认加载 `/user/xiluo/.env`）。
+- 可通过 `-env-file` 指定 dotenv 文件路径。
 - 已存在的系统环境变量不会被 `.env` 覆盖。
+- dotenv 多行值规则：
+  - 双引号值支持真实换行和 `\n`。
+  - 单引号值或无引号值不支持跨行。
 
 ## 接口
 
@@ -61,8 +77,13 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 多数据源配置：
 
 - 单数据源（可省略 name）：`MYSQL_DSNS=<dsn>`，自动映射为 source=`default`。
-- 多数据源：`MYSQL_DSNS=<name1>=<dsn1>;<name2>=<dsn2>`。
-  - 示例：`MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
+- 多数据源：`MYSQL_DSNS` 支持 `;` 或换行分隔。
+  - 示例（`;`）：`MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
+  - 示例（换行）：
+    ```env
+    MYSQL_DSNS="core=user:pwd@tcp(127.0.0.1:3306)/core
+    audit=user:pwd@tcp(127.0.0.1:3306)/audit"
+    ```
   - `name` 用于工具调用时的 `source` 选择。
   - source name 仅允许字母、数字、`_`、`-`。
 

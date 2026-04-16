@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -49,7 +50,20 @@ func openMySQLSources(ctx context.Context, cfg config.Config) (map[string]*sql.D
 }
 
 func main() {
-	if err := config.LoadDotEnvFile(config.DefaultDotEnvPath); err != nil {
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("get current working directory error: %v", err)
+	}
+	opts, err := parseCLIOptions(os.Args[1:], cwd)
+	if err != nil {
+		log.Fatalf("parse cli args error: %v", err)
+	}
+	if opts.ShowHelp {
+		printHelp(os.Stdout, filepath.Base(os.Args[0]), filepath.Join(cwd, config.DefaultDotEnvPath))
+		return
+	}
+
+	if err := config.LoadDotEnvFile(opts.DotEnvPath); err != nil {
 		log.Fatalf("load .env error: %v", err)
 	}
 

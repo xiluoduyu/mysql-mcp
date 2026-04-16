@@ -18,6 +18,18 @@ cp .env.example .env
 go run ./cmd/mysql-mcp
 ```
 
+Show help:
+
+```bash
+go run ./cmd/mysql-mcp -h
+```
+
+Specify `.env` path:
+
+```bash
+go run ./cmd/mysql-mcp -env-file /path/to/custom.env
+```
+
 Install CLI binary with `go install`:
 
 ```bash
@@ -30,8 +42,12 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 Notes:
 
-- `.env` is auto-loaded at startup from current directory.
+- `.env` is auto-loaded at startup from the command working directory (for example, running `mysql-mcp` in `/user/xiluo` loads `/user/xiluo/.env` by default).
+- You can override dotenv path with `-env-file`.
 - Existing process env vars are not overridden by `.env`.
+- Dotenv multi-line values:
+  - Double-quoted values support both literal newlines and `\n`.
+  - Single-quoted or unquoted values do not support cross-line values.
 
 ## Endpoints
 
@@ -62,8 +78,13 @@ Defaults:
 Multi-source configuration:
 
 - Single source (name optional): `MYSQL_DSNS=<dsn>`, auto-mapped to source=`default`.
-- Multiple sources: `MYSQL_DSNS=<name1>=<dsn1>;<name2>=<dsn2>`.
-  - Example: `MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
+- Multiple sources: `MYSQL_DSNS` supports both `;` and newline as separators.
+  - Example (`;`): `MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
+  - Example (newline):
+    ```env
+    MYSQL_DSNS="core=user:pwd@tcp(127.0.0.1:3306)/core
+    audit=user:pwd@tcp(127.0.0.1:3306)/audit"
+    ```
   - `name` is used by tool calls as `source`.
   - Source name allows only letters, digits, `_`, `-`.
 

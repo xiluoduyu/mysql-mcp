@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -53,6 +52,7 @@ func LoadDotEnvFile(path string) error {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
@@ -73,6 +73,16 @@ func LoadDotEnvFile(path string) error {
 		if key == "" {
 			return fmt.Errorf("invalid dotenv line %d: empty key", lineNo)
 		}
+		if strings.HasPrefix(val, "\"") {
+			startLine := lineNo
+			for !hasCompleteDoubleQuotedValue(val) {
+				if !scanner.Scan() {
+					return fmt.Errorf("invalid dotenv value at line %d: unterminated double-quoted value", startLine)
+				}
+				lineNo++
+				val += "\n" + scanner.Text()
+			}
+		}
 
 		parsed, err := parseDotEnvValue(val)
 		if err != nil {
@@ -92,15 +102,83 @@ func LoadDotEnvFile(path string) error {
 }
 
 func parseDotEnvValue(v string) (string, error) {
-	if len(v) >= 2 && strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"") {
-		s, err := strconv.Unquote(v)
-		if err != nil {
-			return "", err
-		}
-		return s, nil
+	if strings.HasPrefix(v, "\"") {
+		return parseDoubleQuotedDotEnvValue(v)
 	}
-	if len(v) >= 2 && strings.HasPrefix(v, "'") && strings.HasSuffix(v, "'") {
+	if strings.HasPrefix(v, "'") {
+		if len(v) < 2 || !strings.HasSuffix(v, "'") {
+			return "", fmt.Errorf("unterminated single-quoted value")
+		}
 		return v[1 : len(v)-1], nil
 	}
+	if strings.ContainsRune(v, '\n') || strings.ContainsRune(v, '\r') {
+		return "", fmt.Errorf("unquoted value cannot contain newline")
+	}
 	return v, nil
+}
+
+func hasCompleteDoubleQuotedValue(v string) bool {
+	if !strings.HasPrefix(v, "\"") {
+		return false
+	}
+	escaped := false
+	for i := 1; i < len(v); i++ {
+		ch := v[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			return strings.TrimSpace(v[i+1:]) == ""
+		}
+	}
+	return false
+}
+
+func parseDoubleQuotedDotEnvValue(v string) (string, error) {
+	if !strings.HasPrefix(v, "\"") {
+		return "", fmt.Errorf("double-quoted value must start with quote")
+	}
+	var b strings.Builder
+	escaped := false
+	for i := 1; i < len(v); i++ {
+		ch := v[i]
+		if escaped {
+			switch ch {
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			default:
+				return "", fmt.Errorf("invalid escape sequence \\%c", ch)
+			}
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			if strings.TrimSpace(v[i+1:]) != "" {
+				return "", fmt.Errorf("invalid trailing characters after closing quote")
+			}
+			return b.String(), nil
+		}
+		b.WriteByte(ch)
+	}
+	if escaped {
+		return "", fmt.Errorf("unterminated escape sequence")
+	}
+	return "", fmt.Errorf("unterminated double-quoted value")
 }
