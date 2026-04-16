@@ -22,7 +22,7 @@ jobs:
         go-version: '1.26.1'
 
     - name: Build
-      run: mkdir -p bin && go build -trimpath -tags=netgo -ldflags="-w -s" -o bin/mysql-mcp.linux.amd64 ./...
+      run: mkdir -p bin && go build -trimpath -tags=netgo -ldflags="-w -s" -o bin/ ./...
 
     - name: Test
       run: go test ./... -count=1
