@@ -76,6 +76,9 @@ func runConfigSet(ctx context.Context, configPath, key, value string, out io.Wri
 	if key == "" {
 		return fmt.Errorf("config key is empty")
 	}
+	if key == config.EnvMySQLDSNs {
+		return fmt.Errorf("%s is managed by [%s] table in config.toml; edit that table directly", config.EnvMySQLDSNs, config.EnvMySQLDSNs)
+	}
 	// Guard against typo/unknown keys: only keys recognized by runtime are writable.
 	if _, ok := allowedConfigKeys[key]; !ok {
 		return fmt.Errorf("invalid config key %q; allowed keys: %s", key, strings.Join(listAllowedConfigKeys(), ", "))
@@ -139,10 +142,11 @@ func listAllowedConfigKeys() []string {
 	return keys
 }
 
-// loadConfigFileIntoEnv parses a minimal key/value config subset:
-// - one entry per line: KEY = VALUE
+// loadConfigFileIntoEnv parses config.toml subset:
+// - top-level entries: KEY = VALUE
+// - [MYSQL_DSNS] table entries: source = dsn
 // - blank lines and "#" comments are ignored
-// - value keeps simple string semantics used by CLI template/set flow
+// - values keep simple string semantics used by CLI template/set flow
 //
 // This is intentionally not a full TOML parser.
 func loadConfigFileIntoEnv(path string) error {
@@ -159,9 +163,16 @@ func loadConfigFileIntoEnv(path string) error {
 	}
 
 	lines := strings.Split(string(b), "\n")
+	inMySQLDSNsTable := false
+	dsnEntries := make([]string, 0, 4)
 	for _, line := range lines {
 		l := strings.TrimSpace(line)
 		if l == "" || strings.HasPrefix(l, "#") {
+			continue
+		}
+		if strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]") {
+			sectionName := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(l, "["), "]"))
+			inMySQLDSNsTable = sectionName == config.EnvMySQLDSNs
 			continue
 		}
 		idx := strings.Index(l, "=")
@@ -173,26 +184,44 @@ func loadConfigFileIntoEnv(path string) error {
 		if k == "" {
 			continue
 		}
+		if inMySQLDSNsTable {
+			if v == "" {
+				return fmt.Errorf("[%s] entry %q has empty dsn", config.EnvMySQLDSNs, k)
+			}
+			dsnEntries = append(dsnEntries, fmt.Sprintf("%s=%s", k, v))
+			continue
+		}
+		if k == config.EnvMySQLDSNs {
+			return fmt.Errorf("legacy %s key is no longer supported in config.toml; use [%s] table", config.EnvMySQLDSNs, config.EnvMySQLDSNs)
+		}
 		// Presence check (not value check): empty string is still an explicit env choice.
 		if _, exists := os.LookupEnv(k); exists {
 			continue
 		}
 		_ = os.Setenv(k, v)
 	}
+	if len(dsnEntries) > 0 {
+		// Presence check (not value check): empty string is still an explicit env choice.
+		if _, exists := os.LookupEnv(config.EnvMySQLDSNs); !exists {
+			_ = os.Setenv(config.EnvMySQLDSNs, strings.Join(dsnEntries, ";"))
+		}
+	}
 	return nil
 }
 
 func defaultConfigTemplate() string {
 	return strings.TrimSpace(`
-# mysql-mcp config (key/value subset, toml-like)
+# mysql-mcp config (toml-like subset)
 # Runtime still uses env-first precedence:
 # process env > values loaded from this file.
 
 MCP_BIND_ADDR = "127.0.0.1:9090"
 MCP_BEARER_TOKEN = "replace-with-strong-token"
-MYSQL_DSNS = "user:password@tcp(127.0.0.1:3306)/dbname?parseTime=true&loc=Local"
 APPROVAL_CLIENT_MODE = "local_desktop"
 APPROVAL_CALLBACK_SECRET = "replace-with-hmac-secret"
+
+[MYSQL_DSNS]
+default = "user:password@tcp(127.0.0.1:3306)/dbname?parseTime=true&loc=Local"
 
 # Optional
 # APPROVAL_BASE_URL = "http://127.0.0.1:8088"

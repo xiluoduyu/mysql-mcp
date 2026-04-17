@@ -16,7 +16,6 @@ This project exposes data to LLM agents through a guarded model: `MCP + strict i
 ```bash
 go run ./cmd/mysql-mcp config init
 go run ./cmd/mysql-mcp config set MCP_BEARER_TOKEN replace-with-strong-token
-go run ./cmd/mysql-mcp config set MYSQL_DSNS 'user:password@tcp(127.0.0.1:3306)/dbname?parseTime=true&loc=Local'
 go run ./cmd/mysql-mcp config set APPROVAL_CALLBACK_SECRET replace-with-hmac-secret
 go run ./cmd/mysql-mcp serve
 ```
@@ -41,8 +40,11 @@ Notes:
 
 - `serve` is now the default command (`mysql-mcp` equals `mysql-mcp serve`).
 - Config file default path is `~/.mysql-mcp/config.toml`.
-- `config.toml` uses a CLI-managed key/value subset (toml-like), not full TOML semantics.
+- `config.toml` uses a CLI-managed toml-like subset:
+  - top-level `KEY = "VALUE"` entries
+  - `[MYSQL_DSNS]` table for data sources
 - `config set` validates keys with a runtime whitelist; unknown keys are rejected.
+- `config set MYSQL_DSNS` is intentionally disabled; edit `[MYSQL_DSNS]` table directly.
 - You can override config path with `--config`.
 - Runtime precedence is: `process environment variables` > `config.toml`.
 - Existing process env vars are not overridden by file loading; `config.toml` acts as persistent defaults.
@@ -77,18 +79,15 @@ Defaults:
 
 Multi-source configuration:
 
-- Single source (name optional): `MYSQL_DSNS=<dsn>`, auto-mapped to source=`default`.
-- Multiple sources:
-  - `config.toml` path: use `;` as separator (single-line value).
-  - environment variable path: supports both `;` and real newlines in the value.
-  - Example (`;`): `MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
-  - Example (env newline):
-    ```env
-    MYSQL_DSNS="core=user:pwd@tcp(127.0.0.1:3306)/core
-    audit=user:pwd@tcp(127.0.0.1:3306)/audit"
-    ```
-  - `name` is used by tool calls as `source`.
-  - Source name allows only letters, digits, `_`, `-`.
+- `config.toml` path must use `[MYSQL_DSNS]` table:
+  ```toml
+  [MYSQL_DSNS]
+  default = "user:pwd@tcp(127.0.0.1:3306)/core"
+  audit = "user:pwd@tcp(127.0.0.1:3306)/audit"
+  ```
+- environment variable path still uses `MYSQL_DSNS=name=dsn;name2=dsn2` (semicolon separated).
+- `name` is used by tool calls as `source`.
+- Source name allows only letters, digits, `_`, `-`.
 
 When `APPROVAL_CLIENT_MODE=http`, set:
 

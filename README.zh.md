@@ -15,7 +15,6 @@ English version: see [README.md](README.md).
 ```bash
 go run ./cmd/mysql-mcp config init
 go run ./cmd/mysql-mcp config set MCP_BEARER_TOKEN replace-with-strong-token
-go run ./cmd/mysql-mcp config set MYSQL_DSNS 'user:password@tcp(127.0.0.1:3306)/dbname?parseTime=true&loc=Local'
 go run ./cmd/mysql-mcp config set APPROVAL_CALLBACK_SECRET replace-with-hmac-secret
 go run ./cmd/mysql-mcp serve
 ```
@@ -40,8 +39,11 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 - `serve` 为默认命令（执行 `mysql-mcp` 等价于 `mysql-mcp serve`）。
 - 配置文件默认路径为 `~/.mysql-mcp/config.toml`。
-- `config.toml` 使用 CLI 管理的 key/value 子集（toml-like），不是完整 TOML 语义。
+- `config.toml` 使用 CLI 管理的 toml-like 子集：
+  - 顶层 `KEY = "VALUE"` 配置项
+  - `[MYSQL_DSNS]` 数据源表
 - `config set` 会按运行时白名单校验 key，未知 key 会被拒绝。
+- `config set MYSQL_DSNS` 被刻意禁用，请直接编辑 `[MYSQL_DSNS]`。
 - 可通过 `--config` 指定配置文件路径。
 - 运行时优先级为：`进程环境变量` > `config.toml`。
 - 已存在的系统环境变量不会被文件加载覆盖；`config.toml` 作为可持久化的默认配置来源。
@@ -76,18 +78,15 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 多数据源配置：
 
-- 单数据源（可省略 name）：`MYSQL_DSNS=<dsn>`，自动映射为 source=`default`。
-- 多数据源：
-  - `config.toml` 场景：使用 `;` 分隔（单行值）。
-  - 环境变量场景：支持 `;`，也支持值内真实换行分隔。
-  - 示例（`;`）：`MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
-  - 示例（环境变量换行）：
-    ```env
-    MYSQL_DSNS="core=user:pwd@tcp(127.0.0.1:3306)/core
-    audit=user:pwd@tcp(127.0.0.1:3306)/audit"
-    ```
-  - `name` 用于工具调用时的 `source` 选择。
-  - source name 仅允许字母、数字、`_`、`-`。
+- `config.toml` 场景必须使用 `[MYSQL_DSNS]` 表：
+  ```toml
+  [MYSQL_DSNS]
+  default = "user:pwd@tcp(127.0.0.1:3306)/core"
+  audit = "user:pwd@tcp(127.0.0.1:3306)/audit"
+  ```
+- 环境变量场景仍使用 `MYSQL_DSNS=name=dsn;name2=dsn2`（分号分隔）。
+- `name` 用于工具调用时的 `source` 选择。
+- source name 仅允许字母、数字、`_`、`-`。
 
 当 `APPROVAL_CLIENT_MODE=http` 时，必须设置：
 

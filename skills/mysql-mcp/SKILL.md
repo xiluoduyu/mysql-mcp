@@ -5,21 +5,21 @@ description: Use when querying this MySQL MCP service and handling approval pend
 
 # MySQL MCP Query Skill
 
-用于封装 `query_table` 的调用与审批重试流程，避免每次手写轮询逻辑。
+Wrapper around `query_table` calls with approval retry flow, so callers do not need to implement polling manually each time.
 
-## 触发场景
+## When To Use
 
-- 需要调用 `query_table`
-- 需要处理审批 `pending -> approve/reject`
-- 需要保证 `request_id` 在重试中复用
+- You need to call `query_table`.
+- You need to handle approval state transitions (`pending -> approved/rejected`).
+- You need stable `request_id` reuse across retries.
 
-## 使用方式
+## Usage
 
-1. 设置环境变量
-   - `MYSQL_MCP_URL`，默认 `http://127.0.0.1:9090/mcp`
-   - `MYSQL_MCP_TOKEN`，必填（Bearer Token）
-   - 服务端配置建议通过 `mysql-mcp config init/set` 管理；`config set` 仅允许运行时白名单 key
-2. 推荐统一入口脚本：
+1. Set environment variables:
+   - `MYSQL_MCP_URL`, default `http://127.0.0.1:9090/mcp`
+   - `MYSQL_MCP_TOKEN`, required (Bearer token)
+   - Server config is recommended to be managed with `mysql-mcp config init/set`; `config set` only accepts runtime-whitelisted keys.
+2. Use the unified entry script:
 
 ```bash
 ./skills/mysql-mcp/scripts/mcp_tools.sh list_tables
@@ -35,29 +35,29 @@ description: Use when querying this MySQL MCP service and handling approval pend
   --limit 20
 ```
 
-3. `query_table` 脚本行为
-   - 自动执行 `initialize` 并复用 `Mcp-Session-Id`（兼容 stateful streamable-http）
-   - 首次若未传 `--request-id`，由服务端生成并回传
-   - 收到 `pending` 时自动复用同一个 `request_id` 重试
-   - `reject` 直接退出（返回码 `2`）
-   - 成功返回最终 `rows/count/request_id` JSON
+3. `query_table` script behavior:
+   - Automatically runs `initialize` and reuses `Mcp-Session-Id` (compatible with stateful streamable-http mode).
+   - If `--request-id` is omitted on the first call, the server generates and returns one.
+   - On `pending`, retries automatically with the same `request_id`.
+   - On `reject`, exits immediately (status code `2`).
+   - On success, returns final `rows/count/request_id` JSON.
 
-## 关键约束
+## Key Constraints
 
-- `request_id` 必须是顶层参数，不能放到 `filters`
-- `filters` 必须是 JSON object（例如 `{"id":1}`）
+- `request_id` must be a top-level argument and must not be placed in `filters`.
+- `filters` must be a JSON object (for example `{"id":1}`).
 
-## 参数
+## Arguments
 
-- `--table` 必填
-- `--source` 可选（多数据源场景建议显式传）
-- `--filters` 可选，默认 `{}`
-- `--order-by` 可选
-- `--order` 可选（`asc|desc`）
-- `--limit` 可选
-- `--offset` 可选
-- `--request-id` 可选
-- `--poll-interval` 可选，默认 `2` 秒
-- `--max-retries` 可选，默认 `60`
+- `--table` required
+- `--source` optional (recommended explicitly in multi-source setups)
+- `--filters` optional, default `{}`
+- `--order-by` optional
+- `--order` optional (`asc|desc`)
+- `--limit` optional
+- `--offset` optional
+- `--request-id` optional
+- `--poll-interval` optional, default `2` seconds
+- `--max-retries` optional, default `60`
 
-更多协议细节见 [references/mcp-contract.md](references/mcp-contract.md)。
+For protocol details, see [references/mcp-contract.md](references/mcp-contract.md).

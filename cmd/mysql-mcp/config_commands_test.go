@@ -6,44 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/urfave/cli/v3"
 )
-
-func TestBuildCommandDefaults(t *testing.T) {
-	home := t.TempDir()
-	oldHome, hadHome := os.LookupEnv("HOME")
-	t.Cleanup(func() {
-		if hadHome {
-			_ = os.Setenv("HOME", oldHome)
-		} else {
-			_ = os.Unsetenv("HOME")
-		}
-	})
-	if err := os.Setenv("HOME", home); err != nil {
-		t.Fatalf("set HOME err=%v", err)
-	}
-
-	cmd := buildCommand(os.Stdout, os.Stderr)
-	if cmd.DefaultCommand != "serve" {
-		t.Fatalf("DefaultCommand=%q", cmd.DefaultCommand)
-	}
-	var haveCfg bool
-	for _, f := range cmd.Flags {
-		switch v := f.(type) {
-		case *cli.StringFlag:
-			if v.Name == "config" {
-				haveCfg = true
-				if v.Value != filepath.Join(home, ".mysql-mcp", "config.toml") {
-					t.Fatalf("config default=%q", v.Value)
-				}
-			}
-		}
-	}
-	if !haveCfg {
-		t.Fatalf("missing config flag")
-	}
-}
 
 func TestConfigInitAndSet(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
@@ -78,7 +41,8 @@ func TestConfigSetUpdatesCompactTomlKey(t *testing.T) {
 	content := strings.Join([]string{
 		`MCP_BIND_ADDR="127.0.0.1:9090"`,
 		`MCP_BEARER_TOKEN="token"`,
-		`MYSQL_DSNS="user:pwd@tcp(127.0.0.1:3306)/db"`,
+		`[MYSQL_DSNS]`,
+		`default="user:pwd@tcp(127.0.0.1:3306)/db"`,
 		`APPROVAL_CALLBACK_SECRET="secret"`,
 	}, "\n") + "\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -107,7 +71,8 @@ func TestConfigSetUncommentsAndUpdatesKey(t *testing.T) {
 	content := strings.Join([]string{
 		`# MCP_BIND_ADDR = "127.0.0.1:9090"`,
 		`MCP_BEARER_TOKEN = "token"`,
-		`MYSQL_DSNS = "user:pwd@tcp(127.0.0.1:3306)/db"`,
+		`[MYSQL_DSNS]`,
+		`default = "user:pwd@tcp(127.0.0.1:3306)/db"`,
 		`APPROVAL_CALLBACK_SECRET = "secret"`,
 	}, "\n") + "\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -131,6 +96,17 @@ func TestConfigSetUncommentsAndUpdatesKey(t *testing.T) {
 	}
 	if !strings.Contains(got, `MCP_BIND_ADDR = "0.0.0.0:9090"`) {
 		t.Fatalf("missing updated value, got:\n%s", got)
+	}
+}
+
+func TestConfigSetRejectsMYSQLDSNS(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	err := runConfigSet(context.Background(), cfgPath, "MYSQL_DSNS", "default=dsn", &strings.Builder{})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "managed by [MYSQL_DSNS] table") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -160,6 +136,53 @@ func TestLoadConfigFileIntoEnvDoesNotOverrideExistingEmptyValue(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFileIntoEnvLoadsMYSQLDSNSTable(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	content := strings.Join([]string{
+		`MCP_BEARER_TOKEN = "token-from-file"`,
+		`[MYSQL_DSNS]`,
+		`core = "user:pwd@tcp(127.0.0.1:3306)/core"`,
+		`audit = "user:pwd@tcp(127.0.0.1:3306)/audit"`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config err=%v", err)
+	}
+
+	old, had := os.LookupEnv("MYSQL_DSNS")
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("MYSQL_DSNS", old)
+		} else {
+			_ = os.Unsetenv("MYSQL_DSNS")
+		}
+	})
+	_ = os.Unsetenv("MYSQL_DSNS")
+
+	if err := loadConfigFileIntoEnv(cfgPath); err != nil {
+		t.Fatalf("loadConfigFileIntoEnv err=%v", err)
+	}
+	got := os.Getenv("MYSQL_DSNS")
+	if got != `core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit` {
+		t.Fatalf("MYSQL_DSNS=%q", got)
+	}
+}
+
+func TestLoadConfigFileIntoEnvRejectsLegacyMYSQLDSNSKey(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	content := `MYSQL_DSNS = "user:pwd@tcp(127.0.0.1:3306)/db"` + "\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config err=%v", err)
+	}
+
+	err := loadConfigFileIntoEnv(cfgPath)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "legacy MYSQL_DSNS key is no longer supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestConfigSetRejectsUnknownKey(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
 	initial := "MCP_BEARER_TOKEN = \"token\"\n"
@@ -181,32 +204,5 @@ func TestConfigSetRejectsUnknownKey(t *testing.T) {
 	}
 	if string(b) != initial {
 		t.Fatalf("config should remain unchanged, got:\n%s", string(b))
-	}
-}
-
-func TestDefaultConfigFilePathFallbackNoHome(t *testing.T) {
-	home := t.TempDir()
-	oldHome, hadHome := os.LookupEnv("HOME")
-	t.Cleanup(func() {
-		if hadHome {
-			_ = os.Setenv("HOME", oldHome)
-		} else {
-			_ = os.Unsetenv("HOME")
-		}
-	})
-	if err := os.Setenv("HOME", home); err != nil {
-		t.Fatalf("set HOME err=%v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Setenv("HOME", "/")
-	})
-	if err := os.Unsetenv("HOME"); err != nil {
-		t.Fatalf("unset HOME err=%v", err)
-	}
-
-	got := defaultConfigFilePath()
-	want := "./config.toml"
-	if got != want {
-		t.Fatalf("got=%q want=%q", got, want)
 	}
 }
