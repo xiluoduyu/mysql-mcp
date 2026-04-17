@@ -27,12 +27,6 @@ Show help:
 go run ./cmd/mysql-mcp -h
 ```
 
-Specify `.env` path:
-
-```bash
-go run ./cmd/mysql-mcp serve --env-file /path/to/custom.env
-```
-
 Install CLI binary with `go install`:
 
 ```bash
@@ -47,12 +41,12 @@ Notes:
 
 - `serve` is now the default command (`mysql-mcp` equals `mysql-mcp serve`).
 - Config file default path is `~/.mysql-mcp/config.toml`.
+- `config.toml` uses a CLI-managed key/value subset (toml-like), not full TOML semantics.
+- `config set` validates keys with a runtime whitelist; unknown keys are rejected.
 - You can override config path with `--config`.
-- `--env-file` is kept for compatibility in v1, and may be removed later.
-- Existing process env vars are not overridden by file loading.
-- Dotenv parsing behavior (for compatibility mode):
-  - Double-quoted values support both literal newlines and `\n`.
-  - Single-quoted or unquoted values do not support cross-line values.
+- Runtime precedence is: `process environment variables` > `config.toml`.
+- Existing process env vars are not overridden by file loading; `config.toml` acts as persistent defaults.
+- This model keeps common settings persistent (convenient), allows per-project/runtime overrides via env vars (flexible), and avoids forcing sensitive values to be stored on disk (safer).
 
 ## Endpoints
 
@@ -84,9 +78,11 @@ Defaults:
 Multi-source configuration:
 
 - Single source (name optional): `MYSQL_DSNS=<dsn>`, auto-mapped to source=`default`.
-- Multiple sources: `MYSQL_DSNS` supports both `;` and newline as separators.
+- Multiple sources:
+  - `config.toml` path: use `;` as separator (single-line value).
+  - environment variable path: supports both `;` and real newlines in the value.
   - Example (`;`): `MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
-  - Example (newline):
+  - Example (env newline):
     ```env
     MYSQL_DSNS="core=user:pwd@tcp(127.0.0.1:3306)/core
     audit=user:pwd@tcp(127.0.0.1:3306)/audit"
@@ -179,7 +175,6 @@ Then wire it in `cmd/mysql-mcp/main.go` by assigning your implementation to `app
 
 - `skills/mysql-mcp/SKILL.md`
 - `skills/mysql-mcp/scripts/mcp_tools.sh`
-- `skills/mysql-mcp/scripts/query_table_with_approval.sh`
 
 Wrapper script env variables:
 

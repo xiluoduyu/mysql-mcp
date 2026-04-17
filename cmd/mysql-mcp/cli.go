@@ -9,20 +9,16 @@ import (
 	"strings"
 
 	"github.com/urfave/cli/v3"
-	"github.com/xiluoduyu/mysql-mcp/internal/config"
 )
 
 type appOptions struct {
-	DotEnvPath string
 	ConfigPath string
 }
 
-func buildCommand(cwd string, stdout io.Writer, stderr io.Writer) *cli.Command {
-	defaultDotEnvPath := resolveDefaultDotEnvPath(cwd)
+func buildCommand(stdout io.Writer, stderr io.Writer) *cli.Command {
 	defaultConfigPath := defaultConfigFilePath()
 
 	opts := &appOptions{
-		DotEnvPath: defaultDotEnvPath,
 		ConfigPath: defaultConfigPath,
 	}
 
@@ -33,12 +29,6 @@ func buildCommand(cwd string, stdout io.Writer, stderr io.Writer) *cli.Command {
 		Writer:    stdout,
 		ErrWriter: stderr,
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "env-file",
-				Usage:       "Path to .env file (deprecated; config file is preferred)",
-				Value:       defaultDotEnvPath,
-				Destination: &opts.DotEnvPath,
-			},
 			&cli.StringFlag{
 				Name:        "config",
 				Usage:       "Path to config file",
@@ -52,7 +42,7 @@ func buildCommand(cwd string, stdout io.Writer, stderr io.Writer) *cli.Command {
 				Name:  "serve",
 				Usage: "Start MCP service",
 				Action: func(ctx context.Context, c *cli.Command) error {
-					return runServe(ctx, opts, cwd)
+					return runServe(ctx, opts)
 				},
 			},
 			{
@@ -93,12 +83,4 @@ func defaultConfigFilePath() string {
 		return "./config.toml"
 	}
 	return filepath.Join(home, ".mysql-mcp", "config.toml")
-}
-
-func resolveDefaultDotEnvPath(cwd string) string {
-	p := config.DefaultDotEnvPath()
-	if _, err := os.Stat(p); err != nil && os.IsNotExist(err) {
-		return filepath.Join(cwd, config.LegacyDefaultDotEnvPath)
-	}
-	return p
 }

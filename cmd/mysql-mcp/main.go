@@ -49,18 +49,14 @@ func openMySQLSources(ctx context.Context, cfg config.Config) (map[string]*sql.D
 }
 
 func main() {
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("get current working directory error: %v", err)
-	}
-	cmd := buildCommand(cwd, os.Stdout, os.Stderr)
+	cmd := buildCommand(os.Stdout, os.Stderr)
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		log.Fatalf("run command error: %v", err)
 	}
 }
 
-func runServe(ctx context.Context, opts *appOptions, cwd string) error {
-	loadCfg, err := loadRuntimeConfig(opts, cwd)
+func runServe(ctx context.Context, opts *appOptions) error {
+	loadCfg, err := loadRuntimeConfig(opts)
 	if err != nil {
 		return err
 	}

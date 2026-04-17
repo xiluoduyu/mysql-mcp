@@ -18,6 +18,7 @@ description: Use when querying this MySQL MCP service and handling approval pend
 1. 设置环境变量
    - `MYSQL_MCP_URL`，默认 `http://127.0.0.1:9090/mcp`
    - `MYSQL_MCP_TOKEN`，必填（Bearer Token）
+   - 服务端配置建议通过 `mysql-mcp config init/set` 管理；`config set` 仅允许运行时白名单 key
 2. 推荐统一入口脚本：
 
 ```bash
@@ -34,17 +35,7 @@ description: Use when querying this MySQL MCP service and handling approval pend
   --limit 20
 ```
 
-3. 也可使用专用查询脚本：
-
-```bash
-./skills/mysql-mcp/scripts/query_table_with_approval.sh \
-  --source audit \
-  --table users \
-  --filters '{"id":1}' \
-  --limit 20
-```
-
-4. `query_table` 脚本行为
+3. `query_table` 脚本行为
    - 自动执行 `initialize` 并复用 `Mcp-Session-Id`（兼容 stateful streamable-http）
    - 首次若未传 `--request-id`，由服务端生成并回传
    - 收到 `pending` 时自动复用同一个 `request_id` 重试

@@ -6,26 +6,39 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/xiluoduyu/mysql-mcp/internal/config"
 )
 
-func loadRuntimeConfig(opts *appOptions, cwd string) (config.Config, error) {
+var allowedConfigKeys = map[string]struct{}{
+	config.EnvMCPBindAddr:                {},
+	config.EnvMCPBearerToken:             {},
+	config.EnvMySQLDSNs:                  {},
+	config.EnvApprovalClientMode:         {},
+	config.EnvApprovalBaseURL:            {},
+	config.EnvApprovalSubmitPath:         {},
+	config.EnvApprovalStatusPathTemplate: {},
+	config.EnvApprovalCallbackSecret:     {},
+	config.EnvApprovalPollInterval:       {},
+	config.EnvApprovalTimeout:            {},
+	config.EnvStateSQLitePath:            {},
+	config.EnvMaxLimit:                   {},
+	config.EnvMaskFieldKeywords:          {},
+	config.EnvMaskFields:                 {},
+	config.EnvMaskJSONFields:             {},
+}
+
+// loadRuntimeConfig keeps env-first behavior intentionally:
+// process env is the runtime source of truth, config file provides persistent defaults.
+// This allows per-project/runtime overrides and avoids forcing secrets to be stored on disk.
+func loadRuntimeConfig(opts *appOptions) (config.Config, error) {
 	// Priority:
 	// 1) Environment variables already exported by caller.
-	// 2) Config file key/value map (for v1 limited keys).
-	// 3) Legacy dotenv fallback for compatibility.
+	// 2) Config file key/value map.
 	if err := loadConfigFileIntoEnv(opts.ConfigPath); err != nil {
 		return config.Config{}, err
-	}
-
-	legacyDefault := filepath.Join(cwd, config.LegacyDefaultDotEnvPath)
-	if opts.DotEnvPath != "" {
-		// Keep backward compatibility in v1.
-		_ = config.LoadDotEnvFile(opts.DotEnvPath)
-	} else {
-		_ = config.LoadDotEnvFile(legacyDefault)
 	}
 
 	cfg, err := config.LoadFromEnv(os.Getenv)
@@ -59,6 +72,15 @@ func runConfigInit(ctx context.Context, configPath string, out io.Writer) error 
 
 func runConfigSet(ctx context.Context, configPath, key, value string, out io.Writer) error {
 	_ = ctx
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("config key is empty")
+	}
+	// Guard against typo/unknown keys: only keys recognized by runtime are writable.
+	if _, ok := allowedConfigKeys[key]; !ok {
+		return fmt.Errorf("invalid config key %q; allowed keys: %s", key, strings.Join(listAllowedConfigKeys(), ", "))
+	}
+
 	p := strings.TrimSpace(configPath)
 	if p == "" {
 		return fmt.Errorf("config path is empty")
@@ -73,14 +95,28 @@ func runConfigSet(ctx context.Context, configPath, key, value string, out io.Wri
 	}
 
 	found := false
-	prefix := key + " = "
 	for i := range lines {
 		trimmed := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(trimmed, prefix) {
-			lines[i] = fmt.Sprintf("%s = %q", key, value)
-			found = true
-			break
+		if trimmed == "" {
+			continue
 		}
+		// Allow commented entries (e.g. "# KEY = ...") so `config set` can
+		// uncomment-and-update instead of appending duplicate keys.
+		normalized := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
+		if normalized == "" {
+			continue
+		}
+		idx := strings.Index(normalized, "=")
+		if idx <= 0 {
+			continue
+		}
+		existingKey := strings.TrimSpace(normalized[:idx])
+		if existingKey != key {
+			continue
+		}
+		lines[i] = fmt.Sprintf("%s = %q", key, value)
+		found = true
+		break
 	}
 	if !found {
 		lines = append(lines, fmt.Sprintf("%s = %q", key, value))
@@ -94,6 +130,21 @@ func runConfigSet(ctx context.Context, configPath, key, value string, out io.Wri
 	return nil
 }
 
+func listAllowedConfigKeys() []string {
+	keys := make([]string, 0, len(allowedConfigKeys))
+	for k := range allowedConfigKeys {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// loadConfigFileIntoEnv parses a minimal key/value config subset:
+// - one entry per line: KEY = VALUE
+// - blank lines and "#" comments are ignored
+// - value keeps simple string semantics used by CLI template/set flow
+//
+// This is intentionally not a full TOML parser.
 func loadConfigFileIntoEnv(path string) error {
 	p := strings.TrimSpace(path)
 	if p == "" {
@@ -122,7 +173,8 @@ func loadConfigFileIntoEnv(path string) error {
 		if k == "" {
 			continue
 		}
-		if os.Getenv(k) != "" {
+		// Presence check (not value check): empty string is still an explicit env choice.
+		if _, exists := os.LookupEnv(k); exists {
 			continue
 		}
 		_ = os.Setenv(k, v)
@@ -132,8 +184,9 @@ func loadConfigFileIntoEnv(path string) error {
 
 func defaultConfigTemplate() string {
 	return strings.TrimSpace(`
-# mysql-mcp config (TOML key/value)
-# V1: values are loaded into environment variables.
+# mysql-mcp config (key/value subset, toml-like)
+# Runtime still uses env-first precedence:
+# process env > values loaded from this file.
 
 MCP_BIND_ADDR = "127.0.0.1:9090"
 MCP_BEARER_TOKEN = "replace-with-strong-token"

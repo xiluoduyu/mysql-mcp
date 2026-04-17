@@ -32,10 +32,9 @@ This file defines repository-specific guidance for coding agents working in this
 ## Environment and Config Rules
 
 - Env names are centralized in `internal/config/env.go`.
-- Main bootstrap loads `.env` automatically via `config.LoadDotEnvFile(config.DefaultDotEnvPath)`.
-- Dotenv behavior:
-  - missing `.env` is ignored
-  - existing process env values are not overridden
+- Runtime precedence is env-first: process env > `config.toml` values loaded by CLI.
+- `config.toml` is the persistent defaults source for common settings.
+- `config set` must only allow keys recognized by runtime config constants.
 - Do not introduce new scattered env-name string literals if constants already exist in `internal/config`.
 
 ## MCP / Approval Contract Rules
@@ -78,3 +77,7 @@ This file defines repository-specific guidance for coding agents working in this
 - Do not weaken approval requirements by default.
 - Do not bypass table/column whitelist checks.
 - Do not relax `query_table` schema strictness without explicit requirement.
+
+## Global Rule Reference
+
+- Follow the global rule: key design intent must be self-explanatory in code (comments, structure, and tests), not only in centralized docs.

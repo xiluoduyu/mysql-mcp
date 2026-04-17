@@ -26,12 +26,6 @@ go run ./cmd/mysql-mcp serve
 go run ./cmd/mysql-mcp -h
 ```
 
-指定 `.env` 路径：
-
-```bash
-go run ./cmd/mysql-mcp serve --env-file /path/to/custom.env
-```
-
 也可通过 `go install` 安装命令行：
 
 ```bash
@@ -46,12 +40,12 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 
 - `serve` 为默认命令（执行 `mysql-mcp` 等价于 `mysql-mcp serve`）。
 - 配置文件默认路径为 `~/.mysql-mcp/config.toml`。
+- `config.toml` 使用 CLI 管理的 key/value 子集（toml-like），不是完整 TOML 语义。
+- `config set` 会按运行时白名单校验 key，未知 key 会被拒绝。
 - 可通过 `--config` 指定配置文件路径。
-- `--env-file` 在 v1 保留用于兼容，后续可能移除。
-- 已存在的系统环境变量不会被文件加载覆盖。
-- dotenv 多行值规则（兼容模式）：
-  - 双引号值支持真实换行和 `\n`。
-  - 单引号值或无引号值不支持跨行。
+- 运行时优先级为：`进程环境变量` > `config.toml`。
+- 已存在的系统环境变量不会被文件加载覆盖；`config.toml` 作为可持久化的默认配置来源。
+- 这种模式既能持久化常用配置（省事），又能按项目或运行时通过环境变量动态覆盖（灵活），并减少敏感值必须落盘的要求（更安全）。
 
 ## 接口
 
@@ -83,9 +77,11 @@ go install github.com/xiluoduyu/mysql-mcp/cmd/mysql-mcp@latest
 多数据源配置：
 
 - 单数据源（可省略 name）：`MYSQL_DSNS=<dsn>`，自动映射为 source=`default`。
-- 多数据源：`MYSQL_DSNS` 支持 `;` 或换行分隔。
+- 多数据源：
+  - `config.toml` 场景：使用 `;` 分隔（单行值）。
+  - 环境变量场景：支持 `;`，也支持值内真实换行分隔。
   - 示例（`;`）：`MYSQL_DSNS=core=user:pwd@tcp(127.0.0.1:3306)/core;audit=user:pwd@tcp(127.0.0.1:3306)/audit`
-  - 示例（换行）：
+  - 示例（环境变量换行）：
     ```env
     MYSQL_DSNS="core=user:pwd@tcp(127.0.0.1:3306)/core
     audit=user:pwd@tcp(127.0.0.1:3306)/audit"
@@ -178,7 +174,6 @@ type ApprovalClient interface {
 
 - `skills/mysql-mcp/SKILL.md`
 - `skills/mysql-mcp/scripts/mcp_tools.sh`
-- `skills/mysql-mcp/scripts/query_table_with_approval.sh`
 
 封装脚本环境变量：
 
